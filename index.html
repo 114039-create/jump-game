@@ -1,0 +1,297 @@
+  <!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="UTF-8">
+  <title>超級李唐：萬壑松風大冒險</title>
+
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#3e2723">
+
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #333;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      font-family: "Microsoft JhengHei", serif;
+      overflow: hidden;
+    }
+    #gameContainer {
+      position: relative;
+      box-shadow: 0 0 20px rgba(0,0,0,0.5);
+    }
+    canvas {
+      background-color: #f0e6d2;
+      display: block;
+      max-width: 100%;
+      height: auto;
+    }
+    #ui {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      color: #3e2723;
+      font-size: 20px;
+      font-weight: bold;
+    }
+    #message {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 30px;
+      color: #8b0000;
+      text-align: center;
+      display: block;
+      background: rgba(255,255,255,0.8);
+      padding: 20px;
+      border: 2px solid #3e2723;
+    }
+    .controls {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      color: #555;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+
+<div id="gameContainer">
+  <canvas id="gameCanvas" width="800" height="400"></canvas>
+  <div id="ui">年代: <span id="year">1124</span> | 分數: <span id="score">0</span></div>
+  <div id="message">按空白鍵或點擊開始<br><small>目標：跨越危機，抵達杭州畫院</small></div>
+  <div class="controls">操作：空白鍵/上鍵跳躍，左右鍵移動（手機點擊跳躍）</div>
+</div>
+
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js');
+}
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const uiYear = document.getElementById('year');
+const uiScore = document.getElementById('score');
+const msgBox = document.getElementById('message');
+
+let gameState = 'START';
+let frameCount = 0;
+
+const GRAVITY = 0.6;
+const JUMP_FORCE = -12;
+const SPEED = 4;
+
+const player = {
+  x: 50,
+  y: 200,
+  width: 30,
+  height: 40,
+  vx: 0,
+  vy: 0,
+  grounded: false,
+  color: '#8b4513'
+};
+
+let platforms = [];
+let obstacles = [];
+let decorations = [];
+let cameraX = 0;
+let score = 0;
+let currentYear = 1124;
+
+function init() {
+  player.x = 50;
+  player.y = 200;
+  player.vx = 0;
+  player.vy = 0;
+  cameraX = 0;
+  score = 0;
+  currentYear = 1124;
+  frameCount = 0;
+
+  platforms = [];
+  obstacles = [];
+  decorations = [];
+
+  let currentX = 0;
+  const groundLevel = 350;
+
+  while (currentX < 5000) {
+    let width = 200 + Math.random()*300;
+    let height = 50 + Math.random()*100;
+    platforms.push({ x: currentX, y: groundLevel, w: width, h: height, type: 'rock' });
+
+    if (Math.random() < 0.7) {
+      decorations.push({ x: currentX + Math.random()*width, y: groundLevel, h: 60 + Math.random()*40, type: 'pine' });
+    }
+
+    if (currentX > 400 && Math.random() < 0.3) {
+      obstacles.push({ x: currentX + width/2, y: groundLevel, w: 20, h: 40 });
+    }
+
+    currentX += width;
+  }
+
+  platforms.push({ x: 5050, y: groundLevel, w: 500, h: 100, type: 'hangzhou' });
+
+  msgBox.style.display = 'none';
+  gameState = 'PLAYING';
+}
+
+const keys = {};
+window.addEventListener('keydown', e => {
+  keys[e.code] = true;
+
+  if (gameState === 'START' && e.code === 'Space') {
+    init();
+  }
+
+  if (gameState === 'GAMEOVER' && e.code === 'Space') {
+    init();
+  }
+});
+window.addEventListener('keyup', e => keys[e.code] = false);
+
+canvas.addEventListener('mousedown', () => {
+  if (gameState === 'START') init();
+  else if (player.grounded && gameState === 'PLAYING') {
+    player.vy = JUMP_FORCE;
+    player.grounded = false;
+  }
+});
+
+canvas.addEventListener('touchstart', () => {
+  if (gameState === 'START') init();
+  else if (player.grounded && gameState === 'PLAYING') {
+    player.vy = JUMP_FORCE;
+    player.grounded = false;
+  }
+});
+
+function drawAxeCutTexture(ctx, x, y, w, h) {
+  ctx.fillStyle = '#2c3e50';
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let i=0; i<w; i+=15) {
+    ctx.moveTo(x+i, y);
+    ctx.lineTo(x+i-10, y+20);
+  }
+  ctx.stroke();
+}
+
+function drawPine(ctx, x, y, h) {
+  ctx.strokeStyle = '#5d4037';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x, y-h);
+  ctx.stroke();
+
+  ctx.fillStyle = '#2e7d32';
+  ctx.beginPath();
+  ctx.arc(x, y-h, 15, 0, Math.PI*2);
+  ctx.fill();
+}
+
+function update() {
+  if (gameState !== 'PLAYING') return;
+
+  if (keys['ArrowRight']) player.vx = SPEED;
+  else if (keys['ArrowLeft']) player.vx = -SPEED;
+  else player.vx = 0;
+
+  if (keys['ArrowUp'] && player.grounded) {
+    player.vy = JUMP_FORCE;
+    player.grounded = false;
+  }
+
+  player.vy += GRAVITY;
+  player.x += player.vx;
+  player.y += player.vy;
+
+  if (player.y > canvas.height) {
+    gameState = 'GAMEOVER';
+    msgBox.innerHTML = "挑戰失敗<br>按空白鍵重試";
+    msgBox.style.display = 'block';
+    return;
+  }
+
+  player.grounded = false;
+  for (let p of platforms) {
+    if (player.x < p.x+p.w &&
+        player.x+player.width > p.x &&
+        player.y+player.height > p.y &&
+        player.vy >= 0) {
+      player.grounded = true;
+      player.vy = 0;
+      player.y = p.y - player.height;
+
+      if (p.type === 'hangzhou') {
+        gameState = 'WIN';
+        msgBox.innerHTML = "抵達杭州畫院！<br>最終得分：" + Math.floor(score);
+        msgBox.style.display = 'block';
+      }
+    }
+  }
+
+  for (let obs of obstacles) {
+    if (player.x < obs.x+obs.w &&
+        player.x+player.width > obs.x &&
+        player.y+player.height > obs.y-obs.h) {
+      gameState = 'GAMEOVER';
+      msgBox.innerHTML = "撞到障礙！<br>按空白鍵重試";
+      msgBox.style.display = 'block';
+    }
+  }
+
+  if (player.x > cameraX+300) cameraX = player.x-300;
+
+  frameCount++;
+  if (frameCount % 120 === 0 && currentYear < 1162) {
+    currentYear++;
+    uiYear.innerText = currentYear;
+  }
+
+  score = player.x/10;
+  uiScore.innerText = Math.floor(score);
+}
+
+function draw() {
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.save();
+  ctx.translate(-cameraX,0);
+
+  for (let p of platforms) drawAxeCutTexture(ctx,p.x,p.y,p.w,p.h);
+  for (let d of decorations) drawPine(ctx,d.x,d.y,d.h);
+
+  ctx.fillStyle = '#000';
+  for (let obs of obstacles) {
+    ctx.fillRect(obs.x, obs.y-obs.h, obs.w, obs.h);
+  }
+
+  ctx.fillStyle = player.color;
+  ctx.fillRect(player.x, player.y, player.width, player.height);
+
+  ctx.restore();
+  ctx.restore();
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+
+</body>
+</html>
